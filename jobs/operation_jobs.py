@@ -136,11 +136,12 @@ class ChangeVLAN(Job):
         output = net_connect.send_config_set(commands)
         net_connect.save_config()
         net_connect.disconnect()
-        self.logger.info(f"This is the output: {output}")
+        self.logger.info(f"This is the output: {output}", extra={"object": device})
 
+        
         # If an excpetion is not raise the configuration was implemented successfully
         self.logger.info(
-            interface, f"Successfully added to {interface.name} on {device.name}!"
+            f"Successfully added to {interface.name} on {device.name}!", extra={"object": interface}
         )
             
     
