@@ -1,0 +1,5 @@
+export NAUTOBOT_DB_NAME=nautobot
+export NAUTOBOT_DB_USER=nautobot
+export POSTGRES_USER=${NAUTOBOT_DB_USER}
+export POSTGRES_DB=${NAUTOBOT_DB_NAME}
+

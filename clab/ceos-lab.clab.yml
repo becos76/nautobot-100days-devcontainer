@@ -1,0 +1,79 @@
+---
+name: "ceos-lab"
+prefix: ""
+
+mgmt:
+  network: "network-lab"
+  ipv4-subnet: "172.21.21.0/24"
+  #network: "bridge"
+
+topology:
+  kinds:
+    ceos:
+      image: "ceos:4.31.2F"
+
+  nodes:
+    bos-acc-01:
+      kind: "ceos"
+      startup-config: "startup-configs/bos-acc-01.conf"
+      mgmt-ipv4: 172.21.21.2
+
+    bos-rtr-01:
+      kind: "ceos"
+      startup-config: "startup-configs/bos-rtr-01.conf"
+      mgmt-ipv4: 172.21.21.3
+    
+
+    nyc-acc-01:
+      kind: "ceos"
+      startup-config: "startup-configs/nyc-acc-01.conf"
+      mgmt-ipv4: 172.21.21.4
+    
+
+    nyc-rtr-01:
+      kind: "ceos"
+      startup-config: "startup-configs/nyc-rtr-01.conf"
+      mgmt-ipv4: 172.21.21.5
+      
+    
+
+  links:
+    - endpoints: ["bos-acc-01:eth1", "bos-rtr-01:eth1"]
+    - endpoints: ["bos-acc-01:eth2", "nyc-rtr-01:eth2"]
+    - endpoints: ["bos-rtr-01:eth2", "nyc-acc-01:eth2"]
+    - endpoints: ["nyc-acc-01:eth1", "nyc-rtr-01:eth1"]
+
+    - type: dummy
+      endpoint:
+        node: "bos-acc-01"
+        interface: "eth3"
+    - type: dummy
+      endpoint:
+        node: "bos-acc-01"
+        interface: "eth4"
+    - type: dummy
+      endpoint:
+        node: bos-acc-01
+        interface: eth5
+    - type: dummy
+      endpoint:
+        node: bos-acc-01
+        interface: eth6
+    - type: dummy
+      endpoint:
+        node: nyc-acc-01
+        interface: eth3
+    - type: dummy
+      endpoint:
+        node: nyc-acc-01
+        interface: eth4
+    - type: dummy
+      endpoint:
+        node: nyc-acc-01
+        interface: eth5
+    - type: dummy
+      endpoint:
+        node: nyc-acc-01
+        interface: eth6
+
+
