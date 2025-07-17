@@ -39,8 +39,20 @@ class HelloJobsWithInputs(Job):
         self.logger.info(f"Hello Jobs with {username}.")
 
 
+class HelloJobsWithApproval(Job):
+    
+    class Meta:
+        name = "Hello World with Approval Required"
+        approval_required = True
+        has_sensitive_variables = False
+    
+    def run(self):
+        self.logger.debug("Hello, this is my first Nautobot Job that requires approval.")
+
+
 register_jobs(
     HelloJobs,
     HelloJobsWithLogs,
     HelloJobsWithInputs,
+    HelloJobsWithApproval,
 )
