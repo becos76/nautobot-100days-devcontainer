@@ -19,8 +19,12 @@ class VerifyHostname(Job):
         description = "Checks all devices in the selected location to ensure their hostnames match the expected pattern."
 
     def run(self, location_to_check):
+        
+        results = []
+
         for device in Device.objects.filter(location=location_to_check):
             hostname = device.name
+            device_id = device.id
             self.logger.info(
                 f"Checking device hostname compliance : {hostname}",
                 extra={"object": device},
@@ -28,11 +32,20 @@ class VerifyHostname(Job):
             if HOSTNAME_PATTERN.match(hostname):
                 self.logger.info(
                     f"{hostname} configured hostname is correct.")
-                continue
-            self.logger.error(
-                f"{hostname} does Not Match Hostname Pattern."
+                status = "PASS"
+            else:
+                self.logger.error(
+                    f"{hostname} does Not Match Hostname Pattern."
                 )
-                
+                status = "FAIL"
+            
+            results.append({
+                "device_id": device_id,
+                "hostname": hostname,
+                "status": status
+            })
+        return {"results": results}  
+
 
 class VerifySerialNumber(Job):
 
