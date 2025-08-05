@@ -2,7 +2,7 @@
 extends: "default"
 
 ignore:
-  - clab/
+  - "clab/"
 
 rules:
   comments: "enable"
