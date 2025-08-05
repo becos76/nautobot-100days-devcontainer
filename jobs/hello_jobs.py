@@ -1,4 +1,5 @@
 from nautobot.apps.jobs import Job, register_jobs, StringVar
+import pdb
 
 name = "Hello World Nautobot Jobs"
 
@@ -20,9 +21,13 @@ class HelloJobsWithLogs(Job):
         description = "Hello Jobs with different log types"
 
     def run(self):
+        x = 1
+        y = 2
+        name = "Manolis"
         self.logger.info("This is an info type log.")
         self.logger.debug("This is a debug type log.")
         self.logger.warning("This is a warning type log.")
+        pdb.set_trace()  # This will pause execution for debugging
         self.logger.error("This is an error type log.")
         self.logger.critical("This is a critical type log.")
 
