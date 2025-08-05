@@ -1,5 +1,9 @@
 ---
 extends: "default"
+
+ignore:
+  - clab/
+
 rules:
   comments: "enable"
   indentation:
