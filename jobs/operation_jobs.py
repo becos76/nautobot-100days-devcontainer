@@ -8,6 +8,7 @@ from nautobot.dcim.models.device_components import Interface
 from netmiko import ConnectHandler
 from nautobot.ipam.models import VLAN
 from nautobot.apps.jobs import JobButtonReceiver
+from nautobot.extras.models.secrets import Secret
 
 name = "Network Operations"
 
@@ -58,10 +59,12 @@ class CommandRunner(Job):
         net_connect = ConnectHandler(
             device_type=device.platform.network_driver_mappings["netmiko"],
             host=device.primary_ip.host,  # or device.name if your name is an FQDN
+            username=Secret.objects.get(name="ARISTA_USERNAME").get_value(),
+            password=Secret.objects.get(name="ARISTA_PASSWORD").get_value(),
             # username=os.getenv("DEVICE_USERNAME"),  # change to use user_name
             # password=os.getenv("DEVICE_PASSWORD"),
-            username="admin",
-            password="admin",
+            # username="admin",
+            # password="admin",
         )
         for command in commands:
             output = net_connect.send_command(
