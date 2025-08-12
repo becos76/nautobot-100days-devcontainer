@@ -43,37 +43,37 @@ topology:
     - endpoints: ["bos-rtr-01:eth2", "nyc-acc-01:eth2"]
     - endpoints: ["nyc-acc-01:eth1", "nyc-rtr-01:eth1"]
 
-    - type: dummy
-      endpoint:
-        node: "bos-acc-01"
-        interface: "eth3"
-    - type: dummy
-      endpoint:
-        node: "bos-acc-01"
-        interface: "eth4"
-    - type: dummy
-      endpoint:
-        node: bos-acc-01
-        interface: eth5
-    - type: dummy
-      endpoint:
-        node: bos-acc-01
-        interface: eth6
-    - type: dummy
-      endpoint:
-        node: nyc-acc-01
-        interface: eth3
-    - type: dummy
-      endpoint:
-        node: nyc-acc-01
-        interface: eth4
-    - type: dummy
-      endpoint:
-        node: nyc-acc-01
-        interface: eth5
-    - type: dummy
-      endpoint:
-        node: nyc-acc-01
-        interface: eth6
+    # - type: dummy
+    #   endpoint:
+    #     node: "bos-acc-01"
+    #     interface: "eth3"
+    # - type: dummy
+    #   endpoint:
+    #     node: "bos-acc-01"
+    #     interface: "eth4"
+    # - type: dummy
+    #   endpoint:
+    #     node: bos-acc-01
+    #     interface: eth5
+    # - type: dummy
+    #   endpoint:
+    #     node: bos-acc-01
+    #     interface: eth6
+    # - type: dummy
+    #   endpoint:
+    #     node: nyc-acc-01
+    #     interface: eth3
+    # - type: dummy
+    #   endpoint:
+    #     node: nyc-acc-01
+    #     interface: eth4
+    # - type: dummy
+    #   endpoint:
+    #     node: nyc-acc-01
+    #     interface: eth5
+    # - type: dummy
+    #   endpoint:
+    #     node: nyc-acc-01
+    #     interface: eth6
 
 

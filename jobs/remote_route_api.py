@@ -1,5 +1,5 @@
 import requests
-from nautobot.apps.jobs import Job, ObjectVar, register_jobs
+from nautobot.apps.jobs import Job, ObjectVar, StringVar, register_jobs
 from nautobot.dcim.models import Device, Location
 
 name = "API Requests"
@@ -23,9 +23,19 @@ class RemoteRouteAPI(Job):
         },
     )
 
-    def run(self, device, device_location):
-        self.logger.info(f"Checking all routes for {device.name}.")
-
+    # Asks user for destination ip
+    target_ip = StringVar(
+        description = "Enter destination IP or remote route. Shows all routes available if left blank.", 
+        required = False
+    )
+    
+    # Log statements captures if the job is for a specific route or for all routes
+    def run(self, device_location, device, target_ip):
+        if target_ip:
+            self.logger.info(f"Checking if {device.name} has a route to {target_ip}.")
+        else:
+            self.logger.info(f"Checking all routes for {device.name}.")
+    
         # Verify the device has a primary IP
         if device.primary_ip is None:
             self.logger.fatal(f"Device '{device.name}' does not have a primary IP address set.")
@@ -35,8 +45,7 @@ class RemoteRouteAPI(Job):
         if device.platform is None:
             self.logger.fatal(f"Device '{device.name}' does not have a platform set.")
             return
-
-
+        
         # Construct the API URL using the device's primary IP address
         url = f"https://{str(device.primary_ip).split('/')[0]}/command-api"
         
@@ -48,7 +57,15 @@ class RemoteRouteAPI(Job):
         }
         
         platform_name = device.platform.network_driver
-        cmd = command_map[platform_name]        
+        base_cmd = command_map[platform_name]        
+        
+        # Append target IP to the command "show ip route" if provided
+        if target_ip:
+            cmd = f"{base_cmd} {target_ip}"
+        else:
+            cmd = base_cmd
+        
+        
              
         # Define the payload for the API call based on device type
         payload = {
