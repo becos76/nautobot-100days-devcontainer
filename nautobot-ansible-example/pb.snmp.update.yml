@@ -1,0 +1,19 @@
+---
+- name: Configure SNMP settings for Arista vEOS
+  hosts: Boston
+  gather_facts: no 
+  connection: network_cli
+  collections:
+    - arista.eos
+  
+  tasks:
+    - name: Configure SNMP community strings
+      become: true
+      arista.eos.eos_snmp_server:
+        config: 
+          communities: 
+            - name: "{{ item.name }}"
+              ro: "{% if item.role == 'ro' %}True{% else %}False{% endif %}"
+              rw: "{% if item.role == 'rw' %}True{% else %}False{% endif %}"
+        state: merged
+      loop: "{{ hostvars[inventory_hostname].config_context.snmp.community}}"

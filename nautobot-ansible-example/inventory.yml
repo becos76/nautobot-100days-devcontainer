@@ -1,0 +1,19 @@
+---
+plugin: networktocode.nautobot.gql_inventory
+api_endpoint: http://localhost:8080
+query:
+  devices:
+    tags: name
+    serial:
+    tenant: name
+    location:
+      name:
+      contact_name:
+      description:
+      parent: name
+    config_context:
+  virtual_machines:
+    tags: name
+    tenant: name
+group_by:
+  - location.name
