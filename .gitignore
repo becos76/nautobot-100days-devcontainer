@@ -306,3 +306,4 @@ creds.env
 invoke.yml
 
 clab/clab-ceos-lab/
+*/.ansible
