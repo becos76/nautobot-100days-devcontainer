@@ -2,15 +2,18 @@
 
 from django.contrib.contenttypes.models import ContentType
 
-from nautobot.apps.jobs import Job, register_jobs
+from nautobot.apps.jobs import Job, ObjectVar, StringVar, register_jobs
 from nautobot.extras.models.roles import Role
 from nautobot.ipam.models import Prefix, VLAN
 from nautobot.tenancy.models import Tenant
 from nautobot.extras.models import Status
+from nautobot.dcim.models.locations import Location, LocationType
 from nautobot.dcim.models.device_components import Interface
 from nautobot.extras.models.customfields import CustomField
+from nautobot.extras.models.relationships import Relationship
+from nautobot.extras.choices import RelationshipTypeChoices
 
-
+from ipaddress import IPv4Network
 from itertools import product
 import re
 import yaml
@@ -20,6 +23,7 @@ from nautobot.dcim.models.device_component_templates import InterfaceTemplate
 
 name = "Data Population Jobs Collection"
 
+POP_PREFIX_SIZE = 16
 PREFIX_ROLES = ["p2p", "loopback", "server", "mgmt", "pop"]
 POP_PREFIX_SIZE = 16
 TENANT_NAME = "Data Center"
@@ -211,9 +215,42 @@ def create_device_types(logger):
                 if created:
                     logger.info(f"Added interface {iface_name} ({iface_type}) to {model_name}")
 
+def get_or_create_relationship(label, key, source_model, destination_model, rel_type):
+    try:
+        rel, created = Relationship.objects.get_or_create(
+            key=key,
+            defaults={
+                "label": label,
+                "source_type": ContentType.objects.get_for_model(source_model),
+                "destination_type": ContentType.objects.get_for_model(destination_model),
+                "type": rel_type,
+            }
+        )
+        return rel
+    except Exception as e:
+        self.logger.error(f"Error creating relationship {label}: {e}")
+        return Relationship.objects.get(key=key)  # Fallback to existing relationship
+
+
 class CreatePop(Job):
     """Job to create a new site of type POP"""
     
+    # Receive input from user about site information
+    location_type = ObjectVar(
+        model=LocationType,
+        description = "Select location type for new site."
+    )
+    parent_site = ObjectVar(
+        model=Location,
+        required=False,
+        description="Select an existing site to nest this site under. Site will be created as a Region if left blank",
+        label="Parent Site"
+    )
+    site_name = StringVar(description="Name of the new site", label="Site Name")
+    site_facility = StringVar(description="Facility of the new site", label="Site Facility")
+    site_code = StringVar(description="Enter Site Code as 2-letter state and 2-digit site ID, e.g. NY01 for New York Store ID 01")
+    tenant = ObjectVar(model=Tenant)
+        
     class Meta:
         """Metadata for CreatePop"""
         name = "Create a Point of Presence"
@@ -221,15 +258,113 @@ class CreatePop(Job):
         Create a new Site of Type POP.
         A new /16 will automatically be allocated from the 'POP Global Pool' Prefix.
         """
-        
-    def run(self):
+    
+    # Pass received data as parameters to our run() method
+    def run(self, location_type, site_name, site_facility, tenant, site_code, parent_site=None):
         """Main function to create a site."""
         
+        # ----------------------------------------------------------------------------
+        # Initialize the database with all required objects
+        # ----------------------------------------------------------------------------
         create_prefix_roles(self.logger)
         create_tenant(self.logger)
         create_vlans(self.logger)
         create_custom_fields(self.logger)
         create_device_types(self.logger)
+           
+        # ----------------------------------------------------------------------------
+        # Create Relationships
+        # ----------------------------------------------------------------------------
+        # rel_device_vlan = get_or_create_relationship(
+        #     "Device to VLAN", "device_to_vlan", Device, VLAN, RelationshipTypeChoices.TYPE_MANY_TO_MANY
+        # )
+        # rel_rack_vlan = get_or_create_relationship(
+        #     "Rack to VLAN", "rack_to_vlan", Rack, VLAN, RelationshipTypeChoices.TYPE_MANY_TO_MANY
+        # )
+        
+        # ----------------------------------------------------------------------------
+        # Create Site
+        # ----------------------------------------------------------------------------
+        location_type_site, _ = LocationType.objects.get_or_create(name=location_type)
+        self.site_name = site_name
+        self.site_facility = site_facility
+        self.site, created = Location.objects.get_or_create(
+            name = site_name,
+            location_type = LocationType.objects.get(name=location_type),
+            facility = site_facility,
+            status = ACTIVE_STATUS,
+            parent = parent_site,  # Will be None if not provided
+            tenant = tenant
+        )
+        if created:
+            message = f"Site '{site_name}' created as a top level Region."
+            if parent_site:
+                message = f"Site '{site_name}' successfully nested under '{parent_site.name}'."
+            self.site.validated_save()
+            self.logger.info(message)
+
+            # ----------------------------------------------------------------------------
+            # Allocate Prefix for this POP
+            # ----------------------------------------------------------------------------
+            pop_role = Role.objects.get(name="pop")
+            self.logger.info(f"Assigning '{site_name}' as '{pop_role}' role.")
+
+            # Find the first available /16 prefix that isn't assigned to a site yet
+            pop_prefix = Prefix.objects.filter(
+                type="container",  # Ensure it's a top-level subnet assigned as a container
+                prefix_length = POP_PREFIX_SIZE,
+                status = ACTIVE_STATUS,
+                location__isnull = True  # Ensure it's not already assigned to another site
+            ).first()
+
+            if pop_prefix:
+                # Assign the prefix to the new site 
+                pop_prefix.location = self.site
+                pop_prefix.validated_save()
+                self.logger.info(f"Assigned {pop_prefix} to {site_name}.")
+            else:                 
+                self.logger.warning("No available /16 prefixes found. Creating a new /16.")
+                
+                # Search for top-level /8 prefixes
+                top_level_prefix = Prefix.objects.filter(
+                    type = "container",  
+                    status = ACTIVE_STATUS,
+                    prefix_length = 8
+                ).first()
+
+                # Get the first available prefix within the /8
+                first_avail = top_level_prefix.get_first_available_prefix()
+
+                if not first_avail:
+                    raise Exception("No available subnets found within the /8 prefix.")
+
+                # Iterate over all possible /16 subnets within the /8 and find the first unassigned one
+                for candidate_prefix in IPv4Network(str(first_avail)).subnets(new_prefix=POP_PREFIX_SIZE):
+                    if not Prefix.objects.filter(prefix=str(candidate_prefix)).exists():
+                        pop_prefix, created = Prefix.objects.get_or_create(
+                            prefix=str(candidate_prefix),
+                            type="container",
+                            location=self.site,
+                            status=ACTIVE_STATUS,
+                            role=pop_role
+                        )
+                        pop_prefix.validated_save()
+                        self.logger.info(f"Allocated new'{pop_prefix}' for site '{site_name}'.")
+                        break
+                else:
+                    raise Exception("No available /16 prefixes found within the /8 range.")        
+        
+        else:
+            self.logger.warning(f"Site '{site_name}' already exists.") 
+
+        
+        
+        
+        
+        
+        
+        
+        
         
         
 register_jobs(
