@@ -10,8 +10,11 @@ from nautobot.extras.models import Status
 from nautobot.dcim.models.locations import Location, LocationType
 from nautobot.dcim.models.device_components import Interface
 from nautobot.extras.models.customfields import CustomField
-from nautobot.extras.models.relationships import Relationship
+from nautobot.extras.models.relationships import Relationship, RelationshipAssociation
 from nautobot.extras.choices import RelationshipTypeChoices
+from nautobot.dcim.models import Device, DeviceType, Manufacturer
+from nautobot.dcim.models import Rack
+from nautobot.dcim.choices import RackTypeChoices
 
 from ipaddress import IPv4Network
 from itertools import product
@@ -22,6 +25,7 @@ from nautobot.dcim.models.device_component_templates import InterfaceTemplate
 
 
 name = "Data Population Jobs Collection"
+
 
 POP_PREFIX_SIZE = 16
 PREFIX_ROLES = ["p2p", "loopback", "server", "mgmt", "pop"]
@@ -70,6 +74,36 @@ DEVICE_TYPES_YAML = [
           mgmt_only: true
     """,
 ]
+ROLE_PREFIX_SIZE = 18
+RACK_HEIGHT = 48
+RACK_WIDTH = 19
+RACK_TYPE = RackTypeChoices.TYPE_4POST
+
+DEVICE_ROLES = {
+    "edge": {
+        "per_rack": 1,
+        "device_type": "DCS-7280CR2-60",
+        "platform": "arista_eos",
+        "rack_elevation": 32,
+        "color": "ff9800",
+        "interfaces": [
+            ("peer", 2),
+            ("leaf", 12),
+            ("external", 8),
+        ],
+    },
+    "leaf": {
+        "per_rack": 3,
+        "device_type": "DCS-7150S-24",
+        "platform": "arista_eos",
+        "rack_elevation": 38,
+        "color": "3f51b5",
+        "interfaces": [
+            ("edge", 4),
+            ("access", 20),
+        ],
+    },
+}
 
 
 def create_prefix_roles(logger):
@@ -275,12 +309,12 @@ class CreatePop(Job):
         # ----------------------------------------------------------------------------
         # Create Relationships
         # ----------------------------------------------------------------------------
-        # rel_device_vlan = get_or_create_relationship(
-        #     "Device to VLAN", "device_to_vlan", Device, VLAN, RelationshipTypeChoices.TYPE_MANY_TO_MANY
-        # )
-        # rel_rack_vlan = get_or_create_relationship(
-        #     "Rack to VLAN", "rack_to_vlan", Rack, VLAN, RelationshipTypeChoices.TYPE_MANY_TO_MANY
-        # )
+        rel_device_vlan = get_or_create_relationship(
+            "Device to VLAN", "device_to_vlan", Device, VLAN, RelationshipTypeChoices.TYPE_MANY_TO_MANY
+        )
+        rel_rack_vlan = get_or_create_relationship(
+            "Rack to VLAN", "rack_to_vlan", Rack, VLAN, RelationshipTypeChoices.TYPE_MANY_TO_MANY
+        )
         
         # ----------------------------------------------------------------------------
         # Create Site
@@ -356,16 +390,113 @@ class CreatePop(Job):
         
         else:
             self.logger.warning(f"Site '{site_name}' already exists.") 
+        
+        # ----------------------------------------------------------------------------
+        # Create and assign prefixes to roles in POP
+        # ----------------------------------------------------------------------------
+        
+        site_subnets = IPv4Network(str(pop_prefix)).subnets(new_prefix=ROLE_PREFIX_SIZE)
+        server_subnet = next(site_subnets)
+        mgmt_subnet = next(site_subnets)
+        loopback_subnet = next(site_subnets)
+        p2p_subnet = next(site_subnets)
 
-        
-        
-        
-        
-        
-        
-        
-        
-        
+        # Assign new subnets to roles
+        server_role = Role.objects.get(name="server")
+        server_prefix, created = Prefix.objects.get_or_create(
+            prefix=str(server_subnet),
+            type="network",
+            role=server_role,
+            parent=pop_prefix,
+            status=ACTIVE_STATUS,
+            location=self.site,
+            tenant=tenant,
+            vlan=VLAN.objects.get(name=server_role)
+        )
+        self.logger.info(f"'{server_prefix}' assigned to '{server_role}'.")
+
+        mgmt_role = Role.objects.get(name="mgmt")
+        mgmt_prefix, created = Prefix.objects.get_or_create(
+            prefix=str(mgmt_subnet),
+            type="network",
+            role=mgmt_role,
+            parent=pop_prefix,
+            status=ACTIVE_STATUS,
+            location=self.site,
+            tenant=tenant,
+            vlan=VLAN.objects.get(name=mgmt_role)
+        )
+        self.logger.info(f"'{mgmt_prefix}' assigned to '{mgmt_role}'.")
+
+        loopback_role = Role.objects.get(name="loopback")
+        loopback_prefix, created = Prefix.objects.get_or_create(
+            prefix=str(loopback_subnet),
+            type="network",
+            role=loopback_role,
+            parent=pop_prefix,
+            status=ACTIVE_STATUS,
+            location=self.site,
+            tenant=tenant
+        )
+        self.logger.info(f"'{loopback_prefix}' assigned to '{loopback_role}'.")
+
+        p2p_role = Role.objects.get(name="p2p")
+        p2p_prefix, created = Prefix.objects.get_or_create(
+            prefix=str(p2p_subnet),
+            type="network",
+            role=p2p_role,
+            parent=pop_prefix,
+            status=ACTIVE_STATUS,
+            location=self.site,
+            tenant=tenant
+        )
+        self.logger.info(f"'{p2p_prefix}' assigned to '{p2p_role}'.") 
+
+        # ----------------------------------------------------------------------------
+        # Create Racks
+        # ----------------------------------------------------------------------------
+        # Initialize global counters
+        global_device_counter = {role: 1 for role in DEVICE_ROLES}  # Keeps track of numbering
+        racks = []  # Store created racks so we can iterate later        
+
+        # Create racks
+        num_rack = 2 # We can modify this to be an input variable if a site needs more than 2
+        for num in range(1, num_rack + 1):
+            rack_name = f"{site_code.upper()}-{100 + num}"
+            rack, created = Rack.objects.get_or_create(
+                name=rack_name,
+                location=self.site,
+                u_height=RACK_HEIGHT,
+                width=RACK_WIDTH,
+                type=RACK_TYPE,
+                status=ACTIVE_STATUS,
+                tenant=tenant,
+            )
+            racks.append(rack)
+            self.logger.info(f"Successfully created {rack_name}.")
+
+        # ---------------------------------------------------------------------------
+        # Associate the mgmt and server VLANs with each rack
+        # ---------------------------------------------------------------------------
+        mgmt_vlan = VLAN.objects.get(name="mgmt")
+        server_vlan = VLAN.objects.get(name="server")
+        for rack in racks:
+            RelationshipAssociation.objects.get_or_create(
+                relationship=rel_rack_vlan,
+                source_type=ContentType.objects.get_for_model(Rack),
+                source_id=rack.id,
+                destination_type=ContentType.objects.get_for_model(VLAN),
+                destination_id=mgmt_vlan.id
+            )
+            RelationshipAssociation.objects.get_or_create(
+                relationship=rel_rack_vlan,
+                source_type=ContentType.objects.get_for_model(Rack),
+                source_id=rack.id,
+                destination_type=ContentType.objects.get_for_model(VLAN),
+                destination_id=server_vlan.id
+            )
+
+
         
 register_jobs(
     CreatePop,
