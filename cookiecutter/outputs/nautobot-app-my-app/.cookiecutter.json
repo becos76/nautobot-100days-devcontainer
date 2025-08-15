@@ -1,0 +1,30 @@
+{
+    "cookiecutter": {
+        "codeowner_github_usernames": "becos76",
+        "full_name": "Manolis Kaliotis",
+        "email": "mkaliotis@gmail.com",
+        "github_org": "self",
+        "app_name": "my_app",
+        "verbose_name": "My App",
+        "app_slug": "my-app",
+        "project_slug": "nautobot-app-my-app",
+        "repo_url": "https://github.com/self/nautobot-app-my-app",
+        "base_url": "my-app",
+        "min_nautobot_version": "2.0.0",
+        "max_nautobot_version": "2.9999",
+        "camel_name": "MyApp",
+        "project_short_description": "My App",
+        "model_class_name": "MyAppExampleModel",
+        "open_source_license": "Apache-2.0",
+        "docs_base_url": "https://docs.nautobot.com",
+        "docs_app_url": "https://docs.nautobot.com/projects/my-app/en/latest",
+        "_extensions": [
+            "local_extensions.camel_case_to_kebab",
+            "local_extensions.camel_case_to_words"
+        ],
+        "_template": "https://github.com/nautobot/cookiecutter-nautobot-app",
+        "_output_dir": "/Users/manolis/Library/CloudStorage/Dropbox/Code/nautobot-100days-devcontainer/cookiecutter/outputs",
+        "_repo_dir": "/home/manolis/.cookiecutters/cookiecutter-nautobot-app/nautobot-app",
+        "_checkout": null
+    }
+}
