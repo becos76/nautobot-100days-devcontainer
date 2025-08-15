@@ -3,7 +3,8 @@ x-nautobot-build: &nautobot-build
   build:
     args:
       NAUTOBOT_VERSION: "${NAUTOBOT_VERSION}"
-      PYTHON_VER: "${PYTHON_VER}"
+      # PYTHON_VER: "${PYTHON_VER}"
+      PYTHON_VER: "3.9"
     context: "../"
     target: "nautobot"
     dockerfile: "environments/Dockerfile"
