@@ -13,8 +13,9 @@ from nautobot.extras.models.customfields import CustomField
 from nautobot.extras.models.relationships import Relationship, RelationshipAssociation
 from nautobot.extras.choices import RelationshipTypeChoices
 from nautobot.dcim.models import Device, DeviceType, Manufacturer, Platform
-from nautobot.dcim.models import Rack
+from nautobot.dcim.models import Rack, Cable
 from nautobot.dcim.choices import RackTypeChoices, InterfaceTypeChoices
+from nautobot.circuits.models import Circuit, CircuitTermination, CircuitType, Provider
 
 from ipaddress import IPv4Network
 from itertools import product
@@ -106,6 +107,7 @@ DEVICE_ROLES = {
     },
 }
 
+TRANSIT_PROVIDERS = ["Equinix", "Cologix", "CoreSite"]
 
 def create_prefix_roles(logger):
     """Create all Prefix Roles defined in PREFIX_ROLES and add content types for IPAM Prefix and VLAN"""
@@ -266,6 +268,22 @@ def get_or_create_relationship(label, key, source_model, destination_model, rel_
         self.logger.error(f"Error creating relationship {label}: {e}")
         return Relationship.objects.get(key=key)  # Fallback to existing relationship
 
+def update_location_type_for_circuit_termination(logger, location_type_obj):
+    """
+    Ensure the given LocationType includes the content type for CircuitTermination,
+    allowing circuit terminations to be associated with locations of this type.
+    """
+    from django.contrib.contenttypes.models import ContentType
+    from nautobot.circuits.models import CircuitTermination
+
+    ct = ContentType.objects.get_for_model(CircuitTermination)
+    if ct not in location_type_obj.content_types.all():
+        location_type_obj.content_types.add(ct)
+        location_type_obj.validated_save()
+        logger.info(f"LocationType '{location_type_obj}' updated to include CircuitTermination content type.")
+    else:
+        logger.info(f"LocationType '{location_type_obj}' already includes CircuitTermination content type.")
+
 
 class CreatePop(Job):
     """Job to create a new site of type POP"""
@@ -285,7 +303,29 @@ class CreatePop(Job):
     site_facility = StringVar(description="Facility of the new site", label="Site Facility")
     site_code = StringVar(description="Enter Site Code as 2-letter state and 2-digit site ID, e.g. NY01 for New York Store ID 01")
     tenant = ObjectVar(model=Tenant)
+
+    def create_p2p_link(self, interface_a, interface_b):
+        """
+        Create a point-to-point link between two interfaces.
+        Adjust this logic with your site's cabling requirements.
+        """
         
+        # Get content types for each interface
+        type_a = ContentType.objects.get_for_model(interface_a)
+        type_b = ContentType.objects.get_for_model(interface_b)
+
+        cable, created = Cable.objects.get_or_create(
+            termination_a_type=type_a,
+            termination_a_id=interface_a.pk,
+            termination_b_type=type_b,
+            termination_b_id=interface_b.pk,
+            defaults={'status': ACTIVE_STATUS}
+        )
+        if created:
+            self.logger.info(f"Created cable between {interface_a} and {interface_b}")
+        else:
+            self.logger.info(f"Cable already exists between {interface_a} and {interface_b}")
+                    
     class Meta:
         """Metadata for CreatePop"""
         name = "Create a Point of Presence"
@@ -320,7 +360,8 @@ class CreatePop(Job):
         # ----------------------------------------------------------------------------
         # Create Site
         # ----------------------------------------------------------------------------
-        location_type_site, _ = LocationType.objects.get_or_create(name=location_type)
+        location_type_obj, created = LocationType.objects.get_or_create(name=location_type)
+        update_location_type_for_circuit_termination(self.logger, location_type_obj)
         self.site_name = site_name
         self.site_facility = site_facility
         self.site, created = Location.objects.get_or_create(
@@ -646,6 +687,116 @@ class CreatePop(Job):
                                 destination_type=ContentType.objects.get_for_model(VLAN),
                                 destination_id=server_vlan.id
                             )
+        # ----------------------------------------------------------------------------
+        # Cabling
+        # ----------------------------------------------------------------------------
+        # Connect Edge Routers Together
+        edge_01 = self.devices.get(f"{site_code}-edge-01")
+        edge_02 = self.devices.get(f"{site_code}-edge-02")
+
+        # Get interfaces with 'peer' custom field on each edge device
+        peer_intfs_01 = iter(Interface.objects.filter(device=edge_01, _custom_field_data__role="peer"))
+        peer_intfs_02 = iter(Interface.objects.filter(device=edge_02, _custom_field_data__role="peer"))
+
+        for link in range(2):  # Create 2 peer links
+            self.create_p2p_link(next(peer_intfs_01), next(peer_intfs_02))
+
+        # Connect Edge and Leaf Switches together
+        leaf_intfs_01 = iter(Interface.objects.filter(device=edge_01, _custom_field_data__role="leaf"))
+        leaf_intfs_02 = iter(Interface.objects.filter(device=edge_02, _custom_field_data__role="leaf"))
+
+        # Use the number of leaf devices defined in your DEVICE_ROLES
+        num_leaf = DEVICE_ROLES["leaf"]["per_rack"]  # Adjust if there are multiple racks
+
+        for i in range(1, num_leaf + 1):
+            leaf_name = f"{site_code}-leaf-{i:02}"
+            leaf = self.devices.get(leaf_name)
+            if not leaf:
+                self.logger.error(f"Leaf device {leaf_name} not found")
+                continue
+
+            edge_intfs = iter(Interface.objects.filter(device=leaf, _custom_field_data__role="edge"))
+
+            # Create two cables: one from each edge device to this leaf's edge interface.
+            self.create_p2p_link(next(leaf_intfs_01), next(edge_intfs))
+            self.create_p2p_link(next(leaf_intfs_02), next(edge_intfs))
+        
+        # ----------------------------------------------------------------------------
+        # Create Circuit Providers if they do not exist
+        # ----------------------------------------------------------------------------
+        for provider_name in TRANSIT_PROVIDERS:
+            provider_obj, created = Provider.objects.get_or_create(
+                name=provider_name,
+            )
+            if created:
+                self.logger.info(f"Created circuit provider: {provider_obj}")
+            else:
+                self.logger.info(f"Circuit provider {provider_obj} already exists")
+
+        # ----------------------------------------------------------------------------
+        # Create CircuitType 'Transit' if it does not exist
+        # ----------------------------------------------------------------------------
+        circuit_type, ct_created = CircuitType.objects.get_or_create(
+            name="Transit",
+        )
+        if ct_created:
+            self.logger.info("Created CircuitType 'Transit'")
+        else:
+            self.logger.info("CircuitType 'Transit' already exists")
+
+        # ----------------------------------------------------------------------------
+        # Create Circuits and Connect them
+        # ----------------------------------------------------------------------------
+        external_intfs_01 = iter(Interface.objects.filter(device=edge_01, _custom_field_data__role="external"))
+        external_intfs_02 = iter(Interface.objects.filter(device=edge_02, _custom_field_data__role="external"))
+
+        for provider_name in TRANSIT_PROVIDERS:
+            # Retrieve providers
+            provider_obj = Provider.objects.get(name=provider_name)
+
+            for intfs_list in [external_intfs_01, external_intfs_02]:
+                intf = next(intfs_list)
+
+                regex = re.compile("[^a-zA-Z0-9]")
+                clean_name = regex.sub("", f"{site_code}{intf.device.name[-4:]}{intf.name[-4:]}")
+                circuit_id = f"{provider_obj.name[0:3]}-{int(clean_name, 36)}"
+                circuit, created = Circuit.objects.get_or_create(
+                    cid=circuit_id,
+                    circuit_type=circuit_type,
+                    provider=provider_obj,
+                    status=ACTIVE_STATUS,
+                    tenant=tenant
+                )
+
+                self.logger.info(f"Circuit {circuit_id} successfully created: {circuit}")
+
+                # Remove any existing termination on side A, if present.
+                if circuit.circuit_termination_a:
+                    circuit.circuit_termination_a.delete()
+
+                # Create a new circuit termination on side A.
+                ct = CircuitTermination(
+                    circuit=circuit,
+                    term_side="A",
+                    location=self.site,
+                )
+                ct.validated_save()
+
+                # Create a cable to connect the interface to the circuit termination.
+                cable_status = Status.objects.get(name="Connected")
+                intf_ct = ContentType.objects.get_for_model(intf)
+                ct_ct = ContentType.objects.get_for_model(ct)
+                cable, cable_created = Cable.objects.get_or_create(
+                    termination_a_type=intf_ct,
+                    termination_a_id=intf.pk,
+                    termination_b_type=ct_ct,
+                    termination_b_id=ct.pk,
+                    defaults={'status': cable_status},
+                )
+                if cable_created:
+                    self.logger.info(f"Created cable connecting {intf} and circuit termination {ct}")
+                else:
+                    self.logger.info(f"Cable already exists connecting {intf} and circuit termination {ct}")
 
         
 register_jobs(
