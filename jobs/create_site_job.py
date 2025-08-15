@@ -4,7 +4,7 @@ from django.contrib.contenttypes.models import ContentType
 
 from nautobot.apps.jobs import Job, ObjectVar, StringVar, register_jobs
 from nautobot.extras.models.roles import Role
-from nautobot.ipam.models import Prefix, VLAN
+from nautobot.ipam.models import Prefix, VLAN, IPAddress
 from nautobot.tenancy.models import Tenant
 from nautobot.extras.models import Status
 from nautobot.dcim.models.locations import Location, LocationType
@@ -12,16 +12,17 @@ from nautobot.dcim.models.device_components import Interface
 from nautobot.extras.models.customfields import CustomField
 from nautobot.extras.models.relationships import Relationship, RelationshipAssociation
 from nautobot.extras.choices import RelationshipTypeChoices
-from nautobot.dcim.models import Device, DeviceType, Manufacturer
+from nautobot.dcim.models import Device, DeviceType, Manufacturer, Platform
 from nautobot.dcim.models import Rack
-from nautobot.dcim.choices import RackTypeChoices
+from nautobot.dcim.choices import RackTypeChoices, InterfaceTypeChoices
 
 from ipaddress import IPv4Network
 from itertools import product
 import re
 import yaml
-from nautobot.dcim.models import DeviceType, Manufacturer
 from nautobot.dcim.models.device_component_templates import InterfaceTemplate
+
+
 
 
 name = "Data Population Jobs Collection"
@@ -496,6 +497,155 @@ class CreatePop(Job):
                 destination_id=server_vlan.id
             )
 
+        # ----------------------------------------------------------------------------
+        # Create Devices
+        # ----------------------------------------------------------------------------
+        self.devices = {}
+        for rack in racks:  
+            for role, data in DEVICE_ROLES.items():
+                device_role, _ = Role.objects.get_or_create(
+                    name=role,
+                    color=data.get("color")
+                )
+                device_role.content_types.add(prefix_ct, vlan_ct)
+                device_role.validated_save()
+                self.logger.info(f"Created '{device_role}'")
+
+                # Start position for the first device in this rack
+                position = data.get("rack_elevation", 1)
+                num_devices = data.get("per_rack") 
+
+                for _ in range(num_devices):                
+                    device_type = DeviceType.objects.get(model=data.get("device_type"))
+                    device_name = f"{site_code}-{role}-{global_device_counter[role]:02}"
+                    platform_obj = Platform.objects.get(network_driver=data.get("platform"))
+
+                    device_obj, _ = Device.objects.get_or_create(
+                        device_type=device_type, 
+                        name=device_name,
+                        location=self.site,
+                        status=ACTIVE_STATUS,
+                        role=device_role,
+                        rack=rack,
+                        platform=platform_obj,
+                        position=position,
+                        face="front",
+                        tenant=tenant,
+                    )
+                    device_obj.save()
+                    self.logger.info(f"Device {device_name} successfully created in {rack.name}")
+
+                    # Save the device in our inventory for later cabling
+                    self.devices[device_obj.name] = device_obj
+
+                    position += 1
+                    global_device_counter[role] += 1
+        
+                    # Assign Loopback IP
+                    loopback_prefix = Prefix.objects.get(
+                        location=self.site,
+                        role=loopback_role,
+                    )
+
+                    loopback_available_ip = loopback_prefix.get_first_available_ip()
+                    
+                    if not loopback_available_ip:
+                        self.logger.error(f"No available IPs in prefix {loopback_prefix}")
+                        return
+
+                    loopback_ip, _ = IPAddress.objects.get_or_create(
+                        address=str(loopback_available_ip),
+                        status=ACTIVE_STATUS,
+                        tenant=tenant,
+                        dns_name=f"{role}-{global_device_counter[role]:02}.{site_code}.{tenant.description}"
+                    )
+
+                    loopback_ip.mask_length = 32  # L0 subnets assigned as /32 instead of /18
+                    loopback_ip.save()
+
+                    loopback_intf, _ = Interface.objects.get_or_create(
+                        name="Loopback0", 
+                        type=InterfaceTypeChoices.TYPE_VIRTUAL, 
+                        device=device_obj, 
+                        status=ACTIVE_STATUS,
+                    )
+
+                    loopback_intf.ip_addresses.add(loopback_ip)
+                    loopback_intf.save()
+                    
+                    # Assign L0 IP as primary IPv4 for device
+                    device_obj.primary_ip4 = loopback_ip
+                    device_obj.save()
+                    self.logger.info(f"Created '{loopback_intf}' with '{loopback_ip}' and assigned to {device_name} as primary IP")
+
+                    # Assign Role to Interfaces
+                    intfs = iter(Interface.objects.filter(device=device_obj))
+                    for int_role, cnt in data.get("interfaces", []):
+                        for _ in range(cnt):
+                            intf = next(intfs, None)
+                            if intf:
+                                intf._custom_field_data = {"role": int_role}
+                                intf.save()
+                    
+                    # VLAN Assignment for leaf devices
+                    if role == "leaf":
+                        for vlan_name, vlan_id in VLAN_INFO.items():                            
+                            vlan_role = Role.objects.get(name=vlan_name)
+
+                            vlan_block = Prefix.objects.filter(
+                                location=self.site, 
+                                status=ACTIVE_STATUS, 
+                                role=vlan_role,
+                            ).first()
+                        
+                            # Find Next available Network for the current vlan role i.e. server or mgmt
+                            first_avail = vlan_block.get_first_available_prefix()
+                            subnet = list(first_avail.subnet(24))[0]
+                            vlan_prefix, created = Prefix.objects.get_or_create(
+                                prefix=str(subnet),
+                                type="pool",
+                                status=ACTIVE_STATUS,
+                                role=vlan_role,
+                                location=self.site,
+                                tenant=tenant,
+                                vlan=VLAN.objects.get(name=vlan_role)                                
+                            )
+                            
+                            # Create IP Addresses on VLAN Interface
+                            vlan_ip, created = IPAddress.objects.get_or_create(
+                                address=str(subnet[0]),
+                                status=ACTIVE_STATUS,
+                                tenant=tenant,
+                                dns_name=f"ip-{str(subnet[0]).replace('.', '-')}.{vlan_name}.{site_code}.{tenant.description}",
+                            )
+
+                            intf_name = f"vlan{vlan_id}"
+                            intf, created = Interface.objects.get_or_create(
+                                name=intf_name, 
+                                type=InterfaceTypeChoices.TYPE_VIRTUAL, 
+                                device=device_obj,                                
+                                status=ACTIVE_STATUS
+                            )
+                            intf.ip_addresses.add(vlan_ip)
+                            intf.save()
+
+                            # -----------------------------------------------------------------------
+                            # Associate the mgmt and server VLANs with the device
+                            # -----------------------------------------------------------------------
+                            RelationshipAssociation.objects.get_or_create(
+                                relationship=rel_device_vlan,
+                                source_type=ContentType.objects.get_for_model(Device),
+                                source_id=device_obj.id,
+                                destination_type=ContentType.objects.get_for_model(VLAN),
+                                destination_id=mgmt_vlan.id
+                            )
+                            RelationshipAssociation.objects.get_or_create(
+                                relationship=rel_device_vlan,
+                                source_type=ContentType.objects.get_for_model(Device),
+                                source_id=device_obj.id,
+                                destination_type=ContentType.objects.get_for_model(VLAN),
+                                destination_id=server_vlan.id
+                            )
 
         
 register_jobs(
