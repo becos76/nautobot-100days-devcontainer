@@ -1281,6 +1281,23 @@ files = [
 ]
 
 [[package]]
+name = "my-app"
+version = "0.1.0"
+description = "My App"
+optional = false
+python-versions = ">=3.8,<3.13"
+files = [
+    {file = "my_app-0.1.0-py3-none-any.whl", hash = "sha256:524f282637dbe3adad4e325e1cabeeac24e4ba85ddd114401af3c731ca3764c3"},
+]
+
+[package.dependencies]
+nautobot = ">=2.0.0,<3.0.0"
+
+[package.source]
+type = "file"
+url = "my_app-0.1.0-py3-none-any.whl"
+
+[[package]]
 name = "nautobot"
 version = "2.3.2"
 description = "Source of truth and network automation platform."
@@ -2418,4 +2435,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<3.12"
-content-hash = "efdf5d0b1be9cbc714de2b33abb0db85a9587b671a37e67c6f1fd20dae0a803b"
+content-hash = "2458750415fb1233fb249d0f3b77a119d92619faf7822d2146d62c5899a52c3f"
