@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Useful Links</h1>
+<ul>
+    {% for link in useful_links %}
+    <li><a href="{{ link.url }}">{{ link.description }}</a></li>
+    {% endfor %}
+</ul>
+{% endblock %}
