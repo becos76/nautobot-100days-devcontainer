@@ -1,0 +1,21 @@
+{% extends 'dcim/softwareversion_retrieve.html' %}
+{% block content %}
+<div class="panel panel-default">
+    <table class="table table-hover table-headings">
+        <thead>
+            <tr>
+                <th>CVE Name</th>
+                <th>CVSS Base Score</th>
+                <th>Severity</th>
+            </tr>
+        </thead>
+        {% for cve_name, cve_data in cves.items %}
+        <tr>
+            <td><a href="{{ cve_data.link }}">{{ cve_name }}</a></td>
+            <td>{{ cve_data.cvss_base_score }}</td>
+            <td>{{ cve_data.severity }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock content %}

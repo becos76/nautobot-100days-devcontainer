@@ -1,0 +1,30 @@
+{
+    "cookiecutter": {
+        "codeowner_github_usernames": "becos76",
+        "full_name": "Manolis Kaliotis",
+        "email": "mkaliotis@gmail.com",
+        "github_org": "becos76",
+        "app_name": "nautobot_software_cves",
+        "verbose_name": "Nautobot Software Cves",
+        "app_slug": "nautobot-software-cves",
+        "project_slug": "nautobot-app-software-cves",
+        "repo_url": "https://github.com/becos76/nautobot-app-software-cves",
+        "base_url": "software-cves",
+        "min_nautobot_version": "2.3.2",
+        "max_nautobot_version": "2.9999",
+        "camel_name": "NautobotSoftwareCves",
+        "project_short_description": "Nautobot Software Cves",
+        "model_class_name": "None",
+        "open_source_license": "Apache-2.0",
+        "docs_base_url": "https://docs.nautobot.com",
+        "docs_app_url": "https://docs.nautobot.com/projects/nautobot-software-cves/en/latest",
+        "_extensions": [
+            "local_extensions.camel_case_to_kebab",
+            "local_extensions.camel_case_to_words"
+        ],
+        "_template": "https://github.com/nautobot/cookiecutter-nautobot-app.git",
+        "_output_dir": "/home/vscode",
+        "_repo_dir": "/home/vscode/.cookiecutters/cookiecutter-nautobot-app/nautobot-app",
+        "_checkout": null
+    }
+}

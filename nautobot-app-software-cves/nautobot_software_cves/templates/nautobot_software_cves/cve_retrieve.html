@@ -1,0 +1,36 @@
+{% extends 'generic/object_retrieve.html' %}
+{% load helpers %}
+
+{% block content_left_page %}
+<div class="panel panel-default">
+    <div class="panel-heading">
+        <strong>CVE</strong>
+    </div>
+    <table class="table table-hover panel-body attr-table">
+        <tr style="font-weight: bold">
+            <td>Name</td>
+            <td>{{ object.name }}</td>
+        </tr>
+        <tr>
+            <td>Link</td>
+            <td><a href="{{ object.link }}" target="_blank">{{ object.link }}</td>
+        </tr>
+        <tr>
+            <td>Severity</td>
+            <td>{% if object.severity %} {{ object.severity }} {% else %} &mdash; {% endif %}</td>
+        </tr>
+        <tr>
+            <td>CVSS Base Score</td>
+            <td>{% if object.cvss %} {{ object.cvss }} {% else %} &mdash; {% endif %}</td>
+        </tr>
+        <tr>
+            <td>Affected Softwares</td>
+            <td>
+                {% for affected_software in object.affected_softwares.all %}
+                {{ affected_software|hyperlinked_object }}{% if not forloop.last %}, {% endif %}
+                {% endfor %}
+            </td>
+        </tr>
+    </table>
+</div>
+{% endblock content_left_page %}
